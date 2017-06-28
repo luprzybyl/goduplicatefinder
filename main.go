@@ -8,14 +8,11 @@ import (
 	"log"
 	"os"
 	"sort"
-	"strconv"
 )
 
 type fileInfo struct {
 	hash     string
-	name     string
 	fullname string
-	size     string
 }
 
 type fileInfos []fileInfo
@@ -32,6 +29,10 @@ func (slice fileInfos) Swap(i, j int) {
 	slice[i], slice[j] = slice[j], slice[i]
 }
 
+func writeHash(filepath string, ch chan fileInfo) {
+	ch <- fileInfo{getHash(filepath), filepath}
+}
+
 func getHash(filepath string) string {
 	hasher := sha256.New()
 	s, err := ioutil.ReadFile(filepath)
@@ -39,51 +40,78 @@ func getHash(filepath string) string {
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 
-func getFolderContents(folderpath string, files []fileInfo) []fileInfo {
-	fmt.Println(len(files), folderpath)
-	d, err := os.Open(folderpath)
+func getFolderContents(folderpath string) ([]string, []string) {
+	files := []string{}
+	folders := []string{}
+
+	fls, err := ioutil.ReadDir(folderpath)
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
-	defer d.Close()
-	fi, err := d.Readdir(-1)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-	for _, fi := range fi {
-		if fi.Mode().IsRegular() {
-			//fmt.Println(getHash(folderpath+"/"+fi.Name()), fi.Name(), fi.Size(), "bytes")
-			files = append(files, fileInfo{getHash(folderpath + "/" + fi.Name()), fi.Name(), folderpath + "/" + fi.Name(), strconv.FormatInt(fi.Size(), 10)})
-		} else if fi.Mode().IsDir() {
-			files = getFolderContents(folderpath+"/"+fi.Name(), files)
+
+	for _, file := range fls {
+		if file.IsDir() {
+			folders = append(folders, folderpath+"/"+file.Name())
+		} else {
+			files = append(files, folderpath+"/"+file.Name())
 		}
 	}
-	return files
+	return files, folders
 }
 
+func processDir(folderpath string) {
+	fmt.Println("Processing " + folderpath)
+	files, folders := getFolderContents(folderpath)
+
+	filechan := make(chan fileInfo, len(files))
+	defer close(filechan)
+	for _, file := range files {
+		go writeHash(file, filechan)
+	}
+	for range files {
+		filesTable = append(filesTable, <-filechan)
+	}
+	folderchan := make(chan bool, len(folders))
+	defer close(folderchan)
+	for _, folder := range folders {
+		processDir(folder)
+	}
+}
+
+var (
+	filesTable fileInfos
+)
+
 func main() {
-	var files fileInfos
+
+	dirs := os.Args[1:]
+
+	if len(dirs) == 0 {
+		fmt.Println("You need to pass absolute path to at least one directory to be scanned")
+		os.Exit(1)
+	}
+
 	var prev fileInfo
 
-	files = getFolderContents("/data", files)
+	for _, dir := range dirs {
+		processDir(dir)
+	}
+
 	fmt.Println("sorting...")
-	sort.Sort(files)
+	sort.Sort(filesTable)
 	fmt.Println("done")
 
-	for _, f := range files {
+	for _, f := range filesTable {
 		if f.hash == prev.hash {
 			fmt.Println("----------------------------------------------------------------------------------------------------------------------------")
-			fmt.Println(f.hash, f.name, f.size, f.fullname)
-			fmt.Println(prev.hash, prev.name, prev.size, prev.fullname)
+			fmt.Println(f.hash, f.fullname)
+			fmt.Println(prev.hash, prev.fullname)
 			fmt.Println("----------------------------------------------------------------------------------------------------------------------------")
 		}
-		//fmt.Println(f.hash, f.name, f.size, f.fullname)
 		prev = f
 	}
+
 }
