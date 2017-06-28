@@ -81,17 +81,14 @@ func processDir(folderpath string) {
 	}
 }
 
-var (
-	filesTable fileInfos
-)
+var filesTable fileInfos
 
 func main() {
 
 	dirs := os.Args[1:]
 
 	if len(dirs) == 0 {
-		fmt.Println("You need to pass absolute path to at least one directory to be scanned")
-		os.Exit(1)
+		processDir(".")
 	}
 
 	var prev fileInfo
